@@ -156,7 +156,9 @@ async def handle(db, ctx: Ctx, method: str, path: str, q: dict, body: dict) -> t
         try:
             await ctx.send(uid, text[:4000])
         except Exception as e:
-            await dbm.set_blocked(db, uid, True)
+            from . import notify
+            if notify.user_gone(e):
+                await dbm.set_blocked(db, uid, True)
             return 400, {"error": f"Не доставлено: {e}"}
         await dbm.log_event(db, uid, "admin_msg", {"text": text[:2000], "via": "panel"})
         u = await dbm.get_user(db, uid)

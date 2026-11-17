@@ -8,6 +8,29 @@ log = logging.getLogger(__name__)
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 COOKIE = "crm"
 _codes: dict[str, float] = {}       # одноразовые коды входа из /panel
+# Защита от перебора кода входа: неудачные попытки за минуту — с одного адреса и всего
+_fails: dict[str, list[float]] = {}
+LOGIN_WINDOW, LOGIN_MAX_IP, LOGIN_MAX_ALL = 60, 5, 30
+
+
+def _client_ip(request) -> str:
+    return (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            or request.headers.get("X-Real-IP", "") or request.remote or "?")
+
+
+def _login_blocked(ip: str) -> bool:
+    edge = time.time() - LOGIN_WINDOW
+    for k in list(_fails):
+        _fails[k] = [t for t in _fails[k] if t > edge]
+        if not _fails[k]:
+            del _fails[k]
+    return len(_fails.get(ip, ())) >= LOGIN_MAX_IP or len(_fails.get("*", ())) >= LOGIN_MAX_ALL
+
+
+def _login_failed(ip: str):
+    t = time.time()
+    _fails.setdefault(ip, []).append(t)
+    _fails.setdefault("*", []).append(t)
 
 
 # ---------- Вход ----------
@@ -135,6 +158,9 @@ def build_app(db, bot) -> web.Application:
             body = await request.json()
         except Exception:
             body = {}
+        ip = _client_ip(request)
+        if _login_blocked(ip):
+            return web.json_response({"error": "Слишком много попыток — подожди минуту"}, status=429)
         code = str(body.get("code", "")).strip()
         pwd = str(body.get("password", ""))
         if code and code in _codes and _codes[code][0] > time.time():
@@ -142,6 +168,7 @@ def build_app(db, bot) -> web.Application:
             return _session_response({"ok": True}, ws)
         if cfg.panel_password and pwd and hmac.compare_digest(pwd, cfg.panel_password):
             return _session_response({"ok": True}, "main")
+        _login_failed(ip)
         return web.json_response({"error": "Неверный или просроченный код"}, status=401)
 
     @routes.post("/api/logout")

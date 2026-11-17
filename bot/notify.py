@@ -1,9 +1,18 @@
 import logging
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 from .config import cfg
 
 log = logging.getLogger(__name__)
 REPLY_HINT = "↩️ Ответь на это сообщение — бот перешлёт твой ответ человеку."
+
+
+def user_gone(e: Exception) -> bool:
+    """Человек заблокировал бота или удалил аккаунт. Таймауты, флуд-лимит и сбои сети сюда не относятся."""
+    if isinstance(e, TelegramForbiddenError):
+        return True
+    return isinstance(e, TelegramBadRequest) and any(
+        x in str(e).lower() for x in ("chat not found", "user is deactivated", "peer_id_invalid"))
 
 
 def who(user) -> str:

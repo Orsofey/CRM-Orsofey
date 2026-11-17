@@ -63,7 +63,8 @@ async def tick(bot: Bot, db):
                 await dbm.log_event(db, uid, "reminder", {"kind": kind})
             except Exception as e:
                 log.info("Не доставлено %s: %s", uid, e)
-                await dbm.set_blocked(db, uid, True)
+                if notify.user_gone(e):
+                    await dbm.set_blocked(db, uid, True)
             await dbm.mark(db, uid, flag, 1)
             await asyncio.sleep(0.05)
 

@@ -168,6 +168,9 @@ async def connect(path: str | None = None) -> aiosqlite.Connection:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     db = await aiosqlite.connect(path)
     db.row_factory = aiosqlite.Row
+    # WAL: панель читает, пока планировщик пишет; NORMAL — без fsync на каждый commit (в WAL это безопасно)
+    for pragma in ("journal_mode=WAL", "synchronous=NORMAL", "busy_timeout=5000"):
+        await db.execute(f"PRAGMA {pragma}")
     await db.executescript(SCHEMA)
     await migrate(db)
     await db.commit()
@@ -200,6 +203,12 @@ async def migrate(db):
         if "account" not in {r[1] for r in await cur.fetchall()}:
             await db.execute(f"ALTER TABLE {tbl} ADD COLUMN account INTEGER")
     await migrate_accounts(db)
+    for ix in ("ix_users_created ON users(created_at)", "ix_users_source ON users(source)",
+               "ix_users_lead ON users(lead_status, lead_at)", "ix_sales_user ON sales(user_id)",
+               "ix_sales_created ON sales(created_at)", "ix_notes_user ON notes(user_id)",
+               "ix_payments_user ON payments(user_id)", "ix_payments_created ON payments(created_at)",
+               "ix_chstats ON channel_stats(platform, at)"):
+        await db.execute(f"CREATE INDEX IF NOT EXISTS {ix}")
     # Скрытые аккаунты соцсетей: их ролики, подписчики и люди с их роликов не попадают в воронку и аналитику
     for v in ("content_v", "channel_stats_v", "users_v"):
         await db.execute(f"DROP VIEW IF EXISTS {v}")

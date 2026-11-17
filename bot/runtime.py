@@ -1,5 +1,5 @@
 """Настройки, которые меняются на лету (из панели или когда бота добавили в канал)."""
-import hashlib, hmac
+import hashlib, hmac, os, secrets
 from .config import cfg
 
 state = {"channel_id": "", "channel_title": "", "channel_url": "", "bot_username": ""}
@@ -33,8 +33,29 @@ def channel_url() -> str:
     return "https://t.me/orsofeystudio"
 
 
+_secret: bytes | None = None
+
+
 def secret() -> bytes:
-    return hashlib.sha256(("orsofey-crm:" + cfg.token).encode()).digest()
+    """Ключ подписи входа в панель и ссылок. Не зависит от токена бота: SECRET_KEY из окружения,
+    иначе случайный ключ, один раз созданный рядом с базой (на Amvera — в постоянном /data)."""
+    global _secret
+    if _secret is None:
+        key = os.getenv("SECRET_KEY", "").strip()
+        if not key:
+            path = os.path.join(os.path.dirname(cfg.db_path) or "data", "secret.key")
+            try:
+                with open(path) as f:
+                    key = f.read().strip()
+            except FileNotFoundError:
+                pass
+            if not key:
+                key = secrets.token_hex(32)
+                os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+                    f.write(key)
+        _secret = hashlib.sha256(("orsofey-crm:" + key).encode()).digest()
+    return _secret
 
 
 def sign(text: str, n: int = 16) -> str:

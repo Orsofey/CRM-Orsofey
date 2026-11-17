@@ -4,7 +4,7 @@ import asyncio, re
 from aiogram import Router, Bot, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton as B
-from .. import db as dbm, crm, workspaces
+from .. import db as dbm, crm, notify, workspaces
 from ..config import cfg
 from ..web import issue_login_code, login_link
 
@@ -131,9 +131,10 @@ async def broadcast(message: Message, bot: Bot, db):
             try:
                 await bot.copy_message(uid, src.chat.id, src.message_id)
                 ok += 1
-            except Exception:
+            except Exception as e:
                 fail += 1
-                await dbm.set_blocked(db, uid, True)
+                if notify.user_gone(e):
+                    await dbm.set_blocked(db, uid, True)
 
     offset = 0
     while True:
@@ -163,7 +164,8 @@ async def reply_relay(message: Message, bot: Bot, db):
         await bot.copy_message(uid, message.chat.id, message.message_id)
     except Exception as e:
         await message.reply(f"Не доставлено: {e}")
-        await dbm.set_blocked(db, uid, True)
+        if notify.user_gone(e):
+            await dbm.set_blocked(db, uid, True)
         return
     await dbm.log_event(db, uid, "admin_msg", {"text": (message.text or message.caption or "[вложение]")[:2000]})
     u = await dbm.get_user(db, uid)
