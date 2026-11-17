@@ -621,6 +621,11 @@ nav.glide .tab.on{background:transparent; box-shadow:none}
   opacity:var(--glow-o); transition:opacity .5s ease}
 @media (hover: none), (pointer: coarse){ .cursor-glow, .glass::before{display:none} }
 @media (max-width: 560px){ .row.exp{width:100%} .row.exp .muted{flex:1 1 100%} }
+/* На слабых устройствах убираем дорогостоящие эффекты перерисовки. */
+.low-power .cursor-glow, .low-power .glass::before, .low-power .bgfx{display:none !important}
+.low-power .vt-in > *, .low-power .vt-soft, .low-power .tip, .low-power details > :not(summary), .low-power .login,
+.low-power .pic, .low-power .pic::after, .low-power .chip.on .pic, .low-power .ptog.on .pic{animation:none !important}
+.low-power .glass, .low-power .sheet, .low-power .tip{backdrop-filter:none !important; -webkit-backdrop-filter:none !important}
 @media (prefers-reduced-motion: reduce){
   .vt-in > *, .vt-soft, .tip, details > :not(summary), .login{animation:none !important}
   .vt-out{transform:none}
@@ -657,6 +662,14 @@ const ICON = {
   close:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   warn:'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
 };
+// Detect low-power devices and apply .low-power class
+(function(){
+  const html = document.documentElement;
+  const et = navigator.connection?.effectiveType;
+  const dm = navigator.deviceMemory;
+  const isLowPower = et && (et === '2g' || et === 'slow-2g' || et === '3g') || !!(dm && dm <= 2);
+  if (isLowPower) html.classList.add('low-power');
+})();
 const ALL_TABS = [["funnel","Воронка",ICON.funnel],["analytics","Аналитика",ICON.chart],["publish","Публикация",ICON.send],["people","Люди",ICON.people],["settings","Настройки",ICON.gear]];
 const ALL_SUBS = {funnel:[["funnel","Воронка"],["gifts","Подарки по ссылке"]], analytics:[["overview","Обзор"],["videos","Ролики"],["labels","Метки"]], people:[["people","Люди"],["deals","Сделки"]]};
 let TABS = ALL_TABS.slice(), SUBS = JSON.parse(JSON.stringify(ALL_SUBS));
@@ -1472,6 +1485,8 @@ async function viewAnalytics(v){
   const plats = ["all", ...d.platforms.map(r=>r.platform)];
   const chg = (n, suffix="") => n==null ? "" : `<span class="${n>=0?"up":"down"}">${n>=0?"▲":"▼"} ${Math.abs(n)}${suffix}</span>`;
   const total = d.daily.days.map((day,i)=>({x:i, y:d.daily.series.reduce((a,s)=>a+s.values[i],0), label:dayLabel(day)}));
+  const sumSeries = s => s.values.reduce((a,b)=>a+b,0);
+  const seriesByViews = [...d.daily.series].sort((a,b)=>sumSeries(b)-sumSeries(a));
   v.innerHTML = `
   <div class="row" style="margin-bottom:10px"><div class="seg">${PERIODS_A.map(([k2,n])=>`<button data-ad="${k2}" class="${S.adays===k2?"on":""}">${n}</button>`).join("")}</div>
     <div class="spacer"></div>${exportButtons("статистику каналов")}</div>
@@ -1489,7 +1504,7 @@ async function viewAnalytics(v){
   <div class="glass card section">
     <h2>Просмотры по дням</h2><p class="hint">Сколько новых просмотров набрали все ролики за день (считается с момента подключения соцсети к CRM). Наведи или нажми на график, чтобы увидеть число.</p>
     ${areaChart(total, {h:120, tip:p=>`${p.label}: ${fmt(p.y)} просмотров`})}
-    ${d.daily.series.length>1?`<div class="multi">${d.daily.series.map(s=>`<div class="minic"><div class="row">${pic(s.platform,"sm")}<b>${esc(s.platform)}</b><div class="spacer"></div><span class="muted">${shortNum(s.values.reduce((a,b)=>a+b,0))}</span></div>
+    ${d.daily.series.length>1?`<div class="multi">${seriesByViews.map(s=>`<div class="minic"><div class="row">${pic(s.platform,"sm")}<b>${esc(s.platform)}</b><div class="spacer"></div><span class="muted">${shortNum(sumSeries(s))}</span></div>
       ${areaChart(s.values.map((y,i)=>({x:i,y,label:dayLabel(d.daily.days[i])})), {h:56, tip:p=>`${s.platform}, ${p.label}: ${fmt(p.y)}`})}</div>`).join("")}</div>`:""}
   </div>
   <div class="glass card section">
@@ -1706,7 +1721,7 @@ async function postForm(){
   const setKind = k => { F.kind = k; $("#fkind").style.display = "inline-flex"; sh.querySelectorAll("[data-kind]").forEach(b=>b.classList.toggle("on", b.dataset.kind===k)); refreshCaps(); renderPreview(); };
   sh.querySelectorAll("[data-kind]").forEach(b=>b.onclick=()=>setKind(b.dataset.kind));
   const drawThumbs = () => {
-    $("#fthumbs").innerHTML = F.files.map((f,i)=>`<div class="thumb">${f.isVideo?`<video src="${f.url}" muted playsinline></video>`:`<img src="${f.url}" alt="">`}
+    $("#fthumbs").innerHTML = F.files.map((f,i)=>`<div class="thumb">${f.isVideo?`<video src="${f.url}" muted playsinline></video>`:`<img src="${f.url}" alt="" loading="lazy">`}
       <span class="tstat">${f.error?"⚠️":f.token?"✓":(f.pct||0)+"%"}</span>${F.ptype==="image"?`<button class="tdel" data-del="${i}" aria-label="Убрать">✕</button>`:""}</div>`).join("");
     $("#fthumbs").querySelectorAll("[data-del]").forEach(b=>b.onclick=e=>{ e.preventDefault(); F.files.splice(+b.dataset.del,1); drawThumbs(); renderPreview(); upd(); });
   };
@@ -1808,7 +1823,7 @@ function pvText(s, {html=false, more=0}={}){
 function pvClip(s, n){ s = s||""; return s.length > n ? esc(s.slice(0,n)).replace(/\n/g,"<br>") + `… <span class="pv-more">ещё</span>` : pvText(s); }
 function pvMedia(files, cls="", max=10){
   if (!files.length) return "";
-  const one = f => f.isVideo ? `<video src="${f.url}" muted loop playsinline autoplay></video>` : `<img src="${f.url}" alt="">`;
+  const one = f => f.isVideo ? `<video src="${f.url}" muted loop playsinline autoplay loading="lazy"></video>` : `<img src="${f.url}" alt="" loading="lazy">`;
   if (files.length === 1) return `<div class="pv-media ${cls}">${one(files[0])}</div>`;
   const shown = files.slice(0, max);
   return `<div class="pv-grid n${Math.min(shown.length,4)} ${cls}">${shown.slice(0,4).map((f,i)=>`<div>${one(f)}${i===3&&files.length>4?`<span class="pv-plus">+${files.length-4}</span>`:""}</div>`).join("")}</div>`;
@@ -2370,6 +2385,30 @@ async function boot(){
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); window._installPrompt = e; });
 if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("/sw.js").catch(()=>{});
 boot();
-</script>
+
+// --- START LOW POWER AND LAZY LOAD SCRIPT ---
+const detectLowPower = () => {
+    const body = document.body;
+    const concurrency = navigator.hardwareConcurrency || 1;
+    const memory = navigator.deviceMemory || 0.5;
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // Условия для "слабого" устройства: низкий поток или низкий объем памяти ИЛИ запрошено снижение motion
+    const isLowPower = (concurrency < 4 && memory < 2) || prefersReducedMotion;
+
+    if (isLowPower) {
+        body.classList.add('low-power');
+        console.log('Detected low-power device or reduced motion preference. Applying low-power optimizations.');
+    } else {
+        body.classList.remove('low-power');
+    }
+};
+
+// Инициализация при загрузке и при изменении настроек (например, с переключением в настройках)
+window.addEventListener('load', detectLowPower);
+window.addEventListener('resize', detectLowPower);
+
+// --- END LOW POWER AND LAZY LOAD SCRIPT ---
+
 </body>
 </html>

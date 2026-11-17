@@ -121,17 +121,29 @@ async def broadcast(message: Message, bot: Bot, db):
     if not src:
         await message.answer("Ответь командой /broadcast на сообщение, которое нужно разослать.")
         return
-    cur = await db.execute("SELECT id FROM users WHERE blocked=0")
-    ids = [r[0] for r in await cur.fetchall()]
     ok = fail = 0
-    for uid in ids:
-        try:
-            await bot.copy_message(uid, src.chat.id, src.message_id)
-            ok += 1
-        except Exception:
-            fail += 1
-            await dbm.set_blocked(db, uid, True)
-        await asyncio.sleep(0.05)   # ~20 сообщений в секунду — в пределах лимитов Telegram
+    BATCH = 100
+    semaphore = asyncio.Semaphore(20)  # не превышаем лимиты Telegram
+
+    async def send_one(uid: int):
+        nonlocal ok, fail
+        async with semaphore:
+            try:
+                await bot.copy_message(uid, src.chat.id, src.message_id)
+                ok += 1
+            except Exception:
+                fail += 1
+                await dbm.set_blocked(db, uid, True)
+
+    offset = 0
+    while True:
+        cur = await db.execute("SELECT id FROM users WHERE blocked=0 LIMIT ? OFFSET ?", (BATCH, offset))
+        batch_ids = [r[0] async for r in cur]
+        if not batch_ids:
+            break
+        await asyncio.gather(*[send_one(uid) for uid in batch_ids])
+        offset += BATCH
+
     await message.answer(f"Готово: доставлено {ok}, не доставлено {fail}.")
 
 
